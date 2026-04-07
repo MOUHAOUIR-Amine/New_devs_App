@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Dict, Any, List
 
@@ -7,22 +7,23 @@ async def calculate_monthly_revenue(property_id: str, month: int, year: int, db_
     Calculates revenue for a specific month.
     """
 
-    start_date = datetime(year, month, 1)
+    start_date = datetime(year, month, 1, tzinfo=timezone.utc)
     if month < 12:
-        end_date = datetime(year, month + 1, 1)
+        end_date = datetime(year, month + 1, 1, tzinfo=timezone.utc)
     else:
-        end_date = datetime(year + 1, 1, 1)
+        end_date = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
         
     print(f"DEBUG: Querying revenue for {property_id} from {start_date} to {end_date}")
 
     # SQL Simulation (This would be executed against the actual DB)
     query = """
         SELECT SUM(total_amount) as total
-        FROM reservations
-        WHERE property_id = $1
-        AND tenant_id = $2
-        AND check_in_date >= $3
-        AND check_in_date < $4
+        FROM reservations r
+        JOIN properties p ON r.property_id = p.id
+        WHERE r.property_id = $1
+        AND r.tenant_id = $2
+        AND (r.check_in_date AT TIME ZONE 'UTC' AT TIME ZONE p.timezone) >= $3
+        AND (r.check_in_date AT TIME ZONE 'UTC' AT TIME ZONE p.timezone) < $4
     """
     
     # In production this query executes against a database session.
@@ -88,15 +89,23 @@ async def calculate_total_revenue(property_id: str, tenant_id: str) -> Dict[str,
     except Exception as e:
         print(f"Database error for {property_id} (tenant: {tenant_id}): {e}")
         
-        # Create property-specific mock data for testing when DB is unavailable
-        # This ensures each property shows different figures
-        mock_data = {
+        mock_data_default = {
             'prop-001': {'total': '1000.00', 'count': 3},
             'prop-002': {'total': '4975.50', 'count': 4}, 
             'prop-003': {'total': '6100.50', 'count': 2},
             'prop-004': {'total': '1776.50', 'count': 4},
             'prop-005': {'total': '3256.00', 'count': 3}
         }
+        
+        mock_data_client_b = {
+            'prop-001': {'total': '3200.00', 'count': 5},
+            'prop-002': {'total': '8150.25', 'count': 7}, 
+            'prop-003': {'total': '4200.75', 'count': 3},
+            'prop-004': {'total': '2100.00', 'count': 2},
+            'prop-005': {'total': '5500.50', 'count': 8}
+        }
+        
+        mock_data = mock_data_client_b if tenant_id == "tenant-b" else mock_data_default
         
         mock_property_data = mock_data.get(property_id, {'total': '0.00', 'count': 0})
         
@@ -107,3 +116,4 @@ async def calculate_total_revenue(property_id: str, tenant_id: str) -> Dict[str,
             "currency": "USD",
             "count": mock_property_data['count']
         }
+
